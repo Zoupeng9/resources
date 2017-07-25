@@ -1,0 +1,145 @@
+import os, sys, re, string
+sys.path.append('../../framework')
+import bldutil
+
+#tri3delastic
+progs = '''
+threelayer3dti
+vti2delastic_cpml
+tti2delastic_cpml
+tti2delastic_bale
+tti2delastic_lg
+mpidemo
+2dhess
+arb3delastic_bale
+vti2delastic
+tti2delastic
+resamp
+twolayer3dti
+twolayer3dort
+twolayer2dti
+hti3delastic
+tti3delastic
+tri3delastic
+vti3delastic
+ort3delastic
+'''
+
+ccprogs = '''
+tti2de1ststaggervectorlr_double_stiffness_vel
+tti2de1ststaggervectorlrkspace_double_stiffness_vel
+tti2de1ststaggervectorlr_double_stiffness
+tti2devectorlrsvd_double_stiffness
+tti2dekspacelr_double
+tti2delrdec_stiffiness
+tti2devectorlrsvd_double
+tti2delrdec_staggered
+tti3delrkspace
+tti2delrdec
+vti2de1ststaggerlr
+tti2devectorlrsvdkspace_double_stiffness
+vti2de1ststaggervectorlr
+vti2de1ststaggervectorlr_double
+ort3dsep_stiffness
+'''
+
+pyprogs ='''
+'''
+ 
+pymods = '''
+'''
+
+tprogs = '''
+'''
+
+subs = '''
+'''
+
+try:  # distributed version
+    Import('env root pkgdir bindir libdir incdir')
+    env = env.Clone()
+except: # local version
+    env = bldutil.Debug()
+    root = None
+    SConscript('../lexing/SConstruct')  # include lexing's head and lib files
+#    SConscript('../../api/c++/SConstruct')
+
+env.Prepend(CPPPATH=['../../include'],
+            LIBPATH=['../../lib'],
+            LIBS=[env.get('DYNLIB','')+'rsf','lapack','vecmatop'])
+
+##############################################################################
+# ADD FFTW3 LIB
+##############################################################################
+fftw = env.get('FFTW')
+if fftw:
+    env.Prepend(CPPDEFINES=['SF_HAS_FFTW'],
+#                LIBS=[env.get('DYNLIB','')+'fftw3f'])
+                LIBS=[env.get('DYNLIB','')+fftw])
+
+
+##############################################################################
+# Compiling C programs 
+##############################################################################
+src = Glob('[a-z]*.c')
+objs = []
+for source in src:
+    inc = env.RSF_Include(source,prefix='')
+    obj = env.StaticObject(source)
+    env.Depends(obj,inc)
+    objs.append(obj)
+
+
+mpicc = env.get('MPICC')
+mains = Split(progs)
+for prog in mains:
+    sources = ['M' + prog]
+    bldutil.depends(env,sources,'M'+prog)
+    if prog[:3] == 'mpi':
+        if mpicc:
+            prog = env.Program(prog,map(lambda x: x + '.c',sources),CC=mpicc)
+        else:
+            prog = env.RSF_Place('sf'+prog,None,var='MPICC',package='mpi')
+    else:
+        prog = env.Program(prog,map(lambda x: x + '.c',sources))
+    if root:
+        env.Install(bindir,prog)
+
+##############################################################################
+# Compiling C++ programs 
+##############################################################################
+
+libcpp=[env.get('DYNLIB','')+'rsf++','rsf','lapack','vecmatop','fftw3f','fftw3','fftw3f_omp','fftw3_omp']
+
+
+mpicxx = env.get('MPICXX')
+ccmains = Split(ccprogs)
+for prog in ccmains:
+    sources = ['M' + prog] 
+    if prog[:3] == 'mpi':
+        if mpicxx:
+            prog = env.Program(prog,map(lambda x: x + '.cc',sources)+objs,CXX=mpicxx,LIBS=libcpp)
+    else:
+    	prog = env.Program(prog,map(lambda x: x + '.cc',sources)+objs, LIBS=libcpp)
+    #prog = env.Program(prog,map(lambda x: x + '.cc',sources)+objs, LIBS=libcpp,CXXFLAGS=tmpflag)
+
+    if root:
+        env.Install(bindir,prog)
+
+##############################################################################
+# Compiling C programs (Test)
+##############################################################################
+
+######################################################################
+# SELF-DOCUMENTATION
+######################################################################
+if root:
+    user = os.path.basename(os.getcwd())
+    main = 'sf%s.py' % user
+    
+    docs = map(lambda prog: env.Doc(prog,'M' + prog),mains) +  \
+           map(lambda prog: env.Doc(prog,'M%s.cc' % prog,lang='c++'),ccmains) 
+    env.Depends(docs,'#/framework/rsf/doc.py')	
+
+    doc = env.RSF_Docmerge(main,docs)
+    env.Install(pkgdir,doc)
